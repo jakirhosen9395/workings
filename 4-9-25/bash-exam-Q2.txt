@@ -1,0 +1,84 @@
+step0   :   Build + layout
+Binary build → নির্দিষ্ট folder (যেমন /opt/<appname>)
+main.go → এটাই entry point ফাইল।
+CMD:    1.  "go build -trimpath -ldflags "-s -w" -o goappbuild main.go"
+        Breakdown:
+            -trimpath → build binary থেকে তোমার local filesystem path কেটে দেয় (security + reproducibility)। [CMD: strings goapp | grep '/home']
+            -ldflags "-s -w" → symbol table আর debug info বাদ দেয় → binary size ছোট হয়। [CMD: ls -lh goappbuild,  file goappbuild]
+            -o goapp → আউটপুট binary এর নাম হবে goapp। [CMD: ls -lh]
+CMD:    2.  "sudo mkdir -p /opt/calculator"
+        3.  "sudo cp goappbuild index.html /opt/calculator"
+
+
+
+Dedicated system user (non-root)
+CMD:    4.  ***"sudo useradd -r -s /usr/sbin/nologin -d /opt/calculator goappuser || true" 
+            "sudo useradd --system --home /opt/calculator --shell /usr/sbin/nologin goappuser || true"    
+        Breakdown:
+            -r → --system (system account তৈরি করবে)। >1000
+            -s → shell সেট করবে (এখানে /usr/sbin/nologin)।
+            -d → home directory /opt/calculator সেট করবে।
+            || → true = যদি আগেই থাকে তবে error না দিয়ে pass করবে।
+
+
+Ownership fix (chown)
+Service file-এ সেই user দিয়ে চালানো
+CMD:    5.  "sudo chown -R goappuser:goappuser /opt/calculator"   
+        Breakdown
+        sudo → তুমি এখনও root permission ছাড়া কিছুই করতে পারো না, তাই sudo।
+        chown → ফাইল/ডিরেক্টরির মালিকানা পাল্টানোর কমান্ড।
+        -R → Recursive mode। /opt/calculator ফোল্ডারের ভেতরের প্রতিটি ফাইল, সাব-ডিরেক্টরিও goappuser এর নামে চলে যাবে।
+        goappuser:goappuser → আগে ইউজার, পরে গ্রুপ। মানে ওই ডিরেক্টরি ও ফাইলগুলোর মালিক হবে ইউজার goappuser, আর গ্রুপ হবে goappuser।
+        /opt/calculator → টার্গেট ডিরেক্টরি।
+        
+
+
+
+
+
+
+step1   :   Log dir তৈরি + পারমিশন
+sudo mkdir -p /var/log/calculator
+sudo chown -R goappuser:goappuser /var/log/calculator
+sudo chmod 750 /var/log/calculator
+
+
+step2: create systemd Service
+CMD     : "sudo vim /etc/systemd/system/goapp.service"
+[Unit]
+Description=goapp
+After=network-online.target
+
+[Service]
+User=goappuser
+Group=goappuser
+WorkingDirectory=/opt/calculator
+ExecStart=/opt/calculator/goappbuild
+Environment=HOST=172.31.29.213
+Environment=PORT=9000
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/home/log/calculator.out.log
+StandardError=append:/home/log/calculator.err.log
+
+[Install]
+WantedBy=multi-user.target
+
+
+step3   :   enalbe goapp serveice
+sudo systemctl daemon-reload
+sudo systemctl enable --now goapp.service
+sudo systemctl status goapp.servic
+
+step4   :   logrotate কনফিগ
+/home/log/calculator.out.log /home/log/calculator.err.log {
+    daily               
+    rotate 30
+    size 100M           
+    compress 
+    delaycompress       
+    missingok
+    notifempty
+    create 0640 goappuser goappuser
+    copytruncate        
+}

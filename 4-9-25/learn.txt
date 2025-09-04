@@ -1,0 +1,16 @@
+1. aws ke permission 400 
+
+2. tar a file with time stamp
+tar -czvf <tar-file_name>-(date +"T_%H_%M_%S-D_%d_%m_%Y").tar.gz <folder name>/
+tar -xzvf <tar-file_name>
+
+
+3. rsync 
+rsync -az -e "ssh -i <key path>" <file_path> <dist_username@dist_IP:dist_path>
+
+4. sudo crontab -e
+#PATH=/usr/local/bin:/usr/bin:/bin
+* * * * * tar -cvzf /tmp/go-app-$(date +\%d\%m\%Y_\%H\%M\%S).tar.gz /home/tn-99646/Desktop/workspace/4-9-25/go-app-calculator > /home/tn-99646/cron-backup.log 2>&1
+* * * * * rsync -avz -e "ssh -i /home/tn-99646/Desktop/workspace/4-9-25/server1-4-9-25.pem" /tmp/go-app-$(date +\%d\%m\%Y_\%H\%M\%S).tar.gz ubuntu@34.228.200.122:/tmp/ >> /home/tn-99646/cron-backup.log 2>&1
+* * * * * rm -f /tmp/go-app-*.tar.gz >> /home/tn-99646/cron-backup.log 2>&1
+
