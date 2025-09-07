@@ -1,0 +1,61 @@
+pipeline{
+    agent any
+    environment {
+        IMAGE_NAME      = 'go-app-cicd'
+        HOST            = 'root@192.168.56.51'
+        IMAGE           = "jakirhosen9395/${IMAGE_NAME}"
+        TAG             = "${env.BUILD_ID}"
+        CONTAINER_NAME  = 'go-app-cicd'
+        PORT_MAP        = '9001:9000'
+        SSH_CREDENTIALS = 'ssh-deploy-key'
+    }
+    stages { 
+        stage('Git pull') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/go-app-cicd']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/jakirhosen9395/jenkins-learning.git'
+                    ]]
+                )
+            }
+        }
+        stage('Build docker image') {
+            steps {
+                script{
+                    def tag = "${env.BUILD_ID}"
+                    sh "cp  /tmp/jenkins-learning/go-app-calculator/* ."
+                    sh "cp  /opt/docker/Dockerfile ."
+                    sh "docker build -t ${IMAGE}:${TAG} ."
+                } 
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-hub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+        stage('Push image') {
+            steps {
+                sh "docker push ${IMAGE}:${TAG}"
+            }
+        }
+        stage('Deploy from Docker Hub') {
+          steps {
+            sshagent(credentials: [SSH_CREDENTIALS]) {
+              sh "ssh -o StrictHostKeyChecking=no ${HOST} 'docker rm -f ${CONTAINER_NAME} && docker pull ${IMAGE}:${TAG} && docker run -d --name ${CONTAINER_NAME} -p ${PORT_MAP} --restart always -e HOST=0.0.0.0 -e PORT=9000 ${IMAGE}:${TAG}'"
+            }
+          }
+        }
+    }
+}
