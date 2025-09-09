@@ -1,5 +1,6 @@
-pipeline{
+pipeline {
     agent any
+
     environment {
         IMAGE_NAME      = 'go-app-cicd'
         HOST            = 'root@192.168.56.51'
@@ -9,26 +10,27 @@ pipeline{
         PORT_MAP        = '9001:9000'
         SSH_CREDENTIALS = 'ssh-deploy-key'
     }
-    stages { 
+
+    stages {
         stage('Git pull') {
             steps {
-                checkout scmGit(
+                checkout([
+                    $class: 'GitSCM',
                     branches: [[name: '*/go-app-cicd']],
-                    extensions: [],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/jakirhosen9395/jenkins-learning.git'
+                        url: 'git@github.com:jakirhosen9395/jenkins-learning.git',
+                        credentialsId: 'github-ssh-key'
                     ]]
-                )
+                ])
             }
         }
+
         stage('Build docker image') {
             steps {
-                script{
-                    def tag = "${env.BUILD_ID}"
-                    sh "cp  /tmp/jenkins-learning/go-app-calculator/* ."
-                    sh "cp  /opt/docker/Dockerfile ."
+                script {
+                    sh "cp /opt/docker/Dockerfile ."
                     sh "docker build -t ${IMAGE}:${TAG} ."
-                } 
+                }
             }
         }
 
@@ -40,14 +42,29 @@ pipeline{
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
                     sh '''
-                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                      echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
                     '''
                 }
             }
         }
+
         stage('Push image') {
             steps {
                 sh "docker push ${IMAGE}:${TAG}"
+            }
+        }
+
+        stage('Update k8s manifest') {
+            steps {
+                sshagent(credentials: ['github-ssh-key']) {
+                    sh '''
+                      git switch deploy || git checkout -b deploy
+                      sed -i -E "s#(image:[[:space:]]*\\\"?jakirhosen9395/go-app-cicd:)[^\\\"[:space:]]*#\\1${BUILD_ID}#g" deploy/go-app-cicd.yaml
+                      git add deploy/go-app-cicd.yaml
+                      git commit -m "updated k8s manifest with pipeline id ${BUILD_ID}"
+                      git push -u origin deploy
+                    '''
+                }
             }
         }
         stage('Deploy from Docker Hub') {
